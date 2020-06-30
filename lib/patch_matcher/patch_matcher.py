@@ -69,11 +69,14 @@ class PatchMatchConsensus(NeighConsensus):
         return kp_map.unsqueeze(1) + n_permuter 
 
     # -- actual model definitions -- #
-    def forward(self, x, num_iterations=8):
+    def forward(self, dcorrs, src_f, tar_f, num_iterations=8):
+        """
+        dcorrs: _, _, SH, SW, TH, TW shaped tensor
+        src_f: CxSHxSW shaped tensor
+        tar_f: CxSHxSW shaped tensor
         """
 
-        """
-        corrs = x[0, 0].permute(2, 3, 0, 1)
+        corrs = dcorrs[0, 0].permute(2, 3, 0, 1)
         SFH, SFW, RFH, RFW = corrs.shape
         dev = corrs.device
 
@@ -83,12 +86,6 @@ class PatchMatchConsensus(NeighConsensus):
         init_h = init_ks // SFW
         init_w = init_ks % SFW
 
-
-        # rand_w = torch.rand(D, RFH, RFW, device=self._device) * (SFW - 1)
-        # rand_h = torch.rand(D, RFH, RFW, device=self._device) * (SFH - 1)
-
-        # kp map = D x 2 x FH x FW
-        # nd_map = torch.stack((rand_w, rand_h), dim=1).long()
         nd_map = torch.stack((init_w, init_h), dim=0).unsqueeze(0)
 
 

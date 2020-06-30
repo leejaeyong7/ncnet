@@ -9,25 +9,32 @@ def normalize_axis(x,L):
 def unnormalize_axis(x,L):
     return x*(L-1)/2+1+(L-1)/2
 
-def kps_to_matches(kps, k_size=1):
+def kps_to_matches(src_size, tar_size, kps, k_size=1):
     '''
-    kps: HxWx2 ref to source key points
+    kps: THxTWx2 target to source key points
     '''
-    to_cuda = lambda x: x.cuda() if kps.is_cuda else x        
-    RH, RW, _ = kps.shape
-    XA,YA=np.meshgrid(np.linspace(-1,1,RW * k_size),np.linspace(-1,1,RH * k_size))
-    XB,YB=np.meshgrid(np.linspace(-1,1,SW * k_size),np.linspace(-1,1,SH * k_size))
-    batch_size,ch,fs1,fs2,fs3,fs4 = corr4d.size()
-    
-    if scale=='centered':
-        XA,YA=np.meshgrid(np.linspace(-1,1,fs2*k_size),np.linspace(-1,1,fs1*k_size))
-        XB,YB=np.meshgrid(np.linspace(-1,1,fs4*k_size),np.linspace(-1,1,fs3*k_size))
-    elif scale=='positive':
-        XA,YA=np.meshgrid(np.linspace(0,1,fs2*k_size),np.linspace(0,1,fs1*k_size))
-        XB,YB=np.meshgrid(np.linspace(0,1,fs4*k_size),np.linspace(0,1,fs3*k_size))
+    TW, TH = tar_size
+    SW, SH = src_size
 
-    JA,IA=np.meshgrid(range(fs2),range(fs1))
-    JB,IB=np.meshgrid(range(fs4),range(fs3))
+    # HxW shaped ref to source key points
+
+    sx = kps[:, :, 0]
+    sy = kps[:, :, 1]
+
+    dev = kps.device
+    sx2n = torch.linspace(-1, 1, SW * k_size, device=dev)
+    sy2n = torch.linspace(-1, 1, SH * k_size, device=dev)
+
+    xA = sx2n[sx.view(-1)].unsqueeze(0)
+    yA = sy2n[sy.view(-1)].unsqueeze(0)
+
+    XB,YB=torch.meshgrid(torch.linspace(-1,1,TW * k_size),torch.linspace(-1,1,TH * k_size))
+
+    xB = XB.view(1, -1)
+    yB = YB.view(1, -1)
+
+    return xA, yA, xB, yB
+
 
 def corr_to_matches(corr4d, delta4d=None, k_size=1, do_softmax=False, scale='centered', return_indices=False, invert_matching_direction=False):
     '''
