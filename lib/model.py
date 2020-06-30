@@ -9,7 +9,9 @@ import numpy.matlib
 import pickle
 
 from lib.torch_util import Softmax1D
-from lib.conv4d import Conv4d
+from lib.point_tnf import corr_to_matches
+from .neigh_consensus import NeighConsensus
+from .patch_matcher import PatchMatchConsensus
 
 def featureL2Norm(feature):
     epsilon = 1e-6
@@ -119,38 +121,38 @@ class FeatureCorrelation(torch.nn.Module):
             
         return correlation_tensor
 
-class NeighConsensus(torch.nn.Module):
-    def __init__(self, use_cuda=True, kernel_sizes=[3,3,3], channels=[10,10,1], symmetric_mode=True):
-        super(NeighConsensus, self).__init__()
-        self.symmetric_mode = symmetric_mode
-        self.kernel_sizes = kernel_sizes
-        self.channels = channels
-        num_layers = len(kernel_sizes)
-        nn_modules = list()
-        for i in range(num_layers):
-            if i==0:
-                ch_in = 1
-            else:
-                ch_in = channels[i-1]
-            ch_out = channels[i]
-            k_size = kernel_sizes[i]
-            nn_modules.append(Conv4d(in_channels=ch_in,out_channels=ch_out,kernel_size=k_size,bias=True))
-            nn_modules.append(nn.ReLU(inplace=True))
-        self.conv = nn.Sequential(*nn_modules)        
-        if use_cuda:
-            self.conv.cuda()
+# class NeighConsensus(torch.nn.Module):
+#     def __init__(self, use_cuda=True, kernel_sizes=[3,3,3], channels=[10,10,1], symmetric_mode=True):
+#         super(NeighConsensus, self).__init__()
+#         self.symmetric_mode = symmetric_mode
+#         self.kernel_sizes = kernel_sizes
+#         self.channels = channels
+#         num_layers = len(kernel_sizes)
+#         nn_modules = list()
+#         for i in range(num_layers):
+#             if i==0:
+#                 ch_in = 1
+#             else:
+#                 ch_in = channels[i-1]
+#             ch_out = channels[i]
+#             k_size = kernel_sizes[i]
+#             nn_modules.append(Conv4d(in_channels=ch_in,out_channels=ch_out,kernel_size=k_size,bias=True))
+#             nn_modules.append(nn.ReLU(inplace=True))
+#         self.conv = nn.Sequential(*nn_modules)        
+#         if use_cuda:
+#             self.conv.cuda()
 
-    def forward(self, x):
-        if self.symmetric_mode:
-            # apply network on the input and its "transpose" (swapping A-B to B-A ordering of the correlation tensor),
-            # this second result is "transposed back" to the A-B ordering to match the first result and be able to add together
-            x = self.conv(x)+self.conv(x.permute(0,1,4,5,2,3)).permute(0,1,4,5,2,3)
-            # because of the ReLU layers in between linear layers, 
-            # this operation is different than convolving a single time with the filters+filters^T
-            # and therefore it makes sense to do this.
-        else:
-            x = self.conv(x)
-        return x
+#     def forward(self, x):
+#         if self.symmetric_mode:
+#             # apply network on the input and its "transpose" (swapping A-B to B-A ordering of the correlation tensor),
+#             # this second result is "transposed back" to the A-B ordering to match the first result and be able to add together
+#             x = self.conv(x)+self.conv(x.permute(0,1,4,5,2,3)).permute(0,1,4,5,2,3)
+#             # because of the ReLU layers in between linear layers, 
+#             # this operation is different than convolving a single time with the filters+filters^T
+#             # and therefore it makes sense to do this.
+#         else:
+#             x = self.conv(x)
+#         return x
 
 def MutualMatching(corr4d):
     # mutual matching
@@ -234,6 +236,10 @@ class ImMatchNet(nn.Module):
         
         self.FeatureCorrelation = FeatureCorrelation(shape='4D',normalization=False)
 
+        # self.NeighConsensus = PatchMatchConsensus(use_cuda=self.use_cuda,
+        #                                           kernel_sizes=ncons_kernel_sizes,
+        #                                           channels=ncons_channels)
+
         self.NeighConsensus = NeighConsensus(use_cuda=self.use_cuda,
                                              kernel_sizes=ncons_kernel_sizes,
                                              channels=ncons_channels)
@@ -272,12 +278,17 @@ class ImMatchNet(nn.Module):
             corr4d,max_i,max_j,max_k,max_l=maxpool4d(corr4d,k_size=self.relocalization_k_size)
         # run match processing model 
         corr4d = MutualMatching(corr4d)
-        corr4d = self.NeighConsensus(corr4d)            
-        corr4d = MutualMatching(corr4d)
-        
-        if self.relocalization_k_size>1:
-            delta4d=(max_i,max_j,max_k,max_l)
-            return (corr4d,delta4d)
+        if(type(self.NeighConsensus) is PatchMatchConsensus):
+            return self.NeighConsensus(corr4d, feature_A, feature_B)
+
         else:
-            return corr4d
+            corr4d = self.NeighConsensus(corr4d)            
+            corr4d = MutualMatching(corr4d)
+            
+            if self.relocalization_k_size>1:
+                delta4d=(max_i,max_j,max_k,max_l)
+                xA,yA,xB,yB, _ = corr_to_matches(corr4d,delta4d, do_softmax=True)
+            else:
+                xA,yA,xB,yB, _ = corr_to_matches(corr4d, do_softmax=True)
+            return (xA, yA, xB, yB)
 

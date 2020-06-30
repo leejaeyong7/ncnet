@@ -70,12 +70,12 @@ for i, batch in enumerate(dataloader):
     batch = batch_tnf(batch)        
     batch_start_idx=batch_size*i
 
-    corr4d = model(batch)
+    matches = model(batch)
 
     # get matches
-    xA,yA,xB,yB,sB=corr_to_matches(corr4d,do_softmax=True)
+    # xA,yA,xB,yB,sB=corr_to_matches(corr4d,do_softmax=True)
         
-    matches=(xA,yA,xB,yB)
+    # matches=(xA,yA,xB,yB)
     stats = pck_metric(batch,batch_start_idx,matches,stats,args,use_cuda)
         
     print('Batch: [{}/{} ({:.0f}%)]'.format(i, len(dataloader), 100. * i / len(dataloader)))

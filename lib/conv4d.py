@@ -66,9 +66,10 @@ class Conv4d(_ConvNd):
         stride = _quadruple(stride)
         padding = _quadruple(padding)
         dilation = _quadruple(dilation)
+        padding_mode = 'zeros'
         super(Conv4d, self).__init__(
             in_channels, out_channels, kernel_size, stride, padding, dilation,
-            False, _quadruple(0), groups, bias)  
+            False, _quadruple(0), groups, bias, padding_mode)  
         # weights will be sliced along one dimension during convolution loop
         # make the looping dimension to be the first one in the tensor, 
         # so that we don't need to call contiguous() inside the loop

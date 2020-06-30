@@ -9,7 +9,30 @@ def normalize_axis(x,L):
 def unnormalize_axis(x,L):
     return x*(L-1)/2+1+(L-1)/2
 
+def kps_to_matches(kps, k_size=1):
+    '''
+    kps: HxWx2 ref to source key points
+    '''
+    to_cuda = lambda x: x.cuda() if kps.is_cuda else x        
+    RH, RW, _ = kps.shape
+    XA,YA=np.meshgrid(np.linspace(-1,1,RW * k_size),np.linspace(-1,1,RH * k_size))
+    XB,YB=np.meshgrid(np.linspace(-1,1,SW * k_size),np.linspace(-1,1,SH * k_size))
+    batch_size,ch,fs1,fs2,fs3,fs4 = corr4d.size()
+    
+    if scale=='centered':
+        XA,YA=np.meshgrid(np.linspace(-1,1,fs2*k_size),np.linspace(-1,1,fs1*k_size))
+        XB,YB=np.meshgrid(np.linspace(-1,1,fs4*k_size),np.linspace(-1,1,fs3*k_size))
+    elif scale=='positive':
+        XA,YA=np.meshgrid(np.linspace(0,1,fs2*k_size),np.linspace(0,1,fs1*k_size))
+        XB,YB=np.meshgrid(np.linspace(0,1,fs4*k_size),np.linspace(0,1,fs3*k_size))
+
+    JA,IA=np.meshgrid(range(fs2),range(fs1))
+    JB,IB=np.meshgrid(range(fs4),range(fs3))
+
 def corr_to_matches(corr4d, delta4d=None, k_size=1, do_softmax=False, scale='centered', return_indices=False, invert_matching_direction=False):
+    '''
+    corr4d: B, C, SH, SW, TH, TW shaped tensor representing correlation
+    '''
     to_cuda = lambda x: x.cuda() if corr4d.is_cuda else x        
     batch_size,ch,fs1,fs2,fs3,fs4 = corr4d.size()
     
@@ -48,6 +71,7 @@ def corr_to_matches(corr4d, delta4d=None, k_size=1, do_softmax=False, scale='cen
         if do_softmax:
             nc_B_Avec=torch.nn.functional.softmax(nc_B_Avec,dim=1)
 
+        # idx_B_Avec = flat indices of sources for each keypoints in target
         match_B_vals,idx_B_Avec=torch.max(nc_B_Avec,dim=1)
         score=match_B_vals.view(batch_size,-1)
 
@@ -117,6 +141,7 @@ def bilinearInterpPointTnf(matches,target_points_norm):
     y_minus[y_minus<0]=0 # fix edge case
     y_plus = y_minus+1
 
+    # ref flat image ids
     toidx = lambda x,y,L: y*L+x
 
     m_m_idx = toidx(x_minus,y_minus,feature_size)
@@ -124,8 +149,9 @@ def bilinearInterpPointTnf(matches,target_points_norm):
     p_m_idx = toidx(x_plus,y_minus,feature_size)
     m_p_idx = toidx(x_minus,y_plus,feature_size)
 
+    # ref image points
     topoint = lambda idx, X, Y: torch.cat((X[idx.view(-1)].view(b,1,N).contiguous(),
-                                     Y[idx.view(-1)].view(b,1,N).contiguous()),dim=1)
+                                           Y[idx.view(-1)].view(b,1,N).contiguous()),dim=1)
 
     P_m_m = topoint(m_m_idx,X_,Y_)
     P_p_p = topoint(p_p_idx,X_,Y_)
@@ -134,11 +160,13 @@ def bilinearInterpPointTnf(matches,target_points_norm):
 
     multrows = lambda x: x[:,0,:]*x[:,1,:]
 
+    # bilinear interpolation distances
     f_p_p=multrows(torch.abs(target_points_norm-P_m_m))
     f_m_m=multrows(torch.abs(target_points_norm-P_p_p))
     f_m_p=multrows(torch.abs(target_points_norm-P_p_m))
     f_p_m=multrows(torch.abs(target_points_norm-P_m_p))
 
+    # source image points
     Q_m_m = topoint(m_m_idx,xA.view(-1),yA.view(-1))
     Q_p_p = topoint(p_p_idx,xA.view(-1),yA.view(-1))
     Q_p_m = topoint(p_m_idx,xA.view(-1),yA.view(-1))
